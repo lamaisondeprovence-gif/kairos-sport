@@ -1,4 +1,4 @@
-import { calculateStake } from '../../lib/kairos-score';
+import { calculateStake, psychologicalCoach } from '../../lib/kairos-score';
 import { supabase } from '../../lib/supabase';
 
 const BOOKMAKERS_BE = [
@@ -25,20 +25,25 @@ function buildTicket(events, budget, mode) {
   if (mode === 'prudent') {
     maxMatches = 3;
     minScore = 85;
-    eligible = eligible.filter(e => e.kairosScore >= minScore);
+    eligible = eligible.filter(e => e.kairosScore >= minScore && !e.trapData?.isTrap);
   } else if (mode === 'equilibre') {
     maxMatches = 5;
     minScore = 80;
-    eligible = eligible.filter(e => e.kairosScore >= minScore);
+    eligible = eligible.filter(e => e.kairosScore >= minScore && !e.trapData?.isTrap);
   } else {
     maxMatches = 8;
     minScore = 75;
     eligible = eligible.filter(e => e.kairosScore >= minScore);
   }
 
-  eligible.sort((a, b) => b.kairosScore - a.kairosScore);
-  const selected = eligible.slice(0, maxMatches);
+  // Trier par score Kairos décroissant + bonus value bet
+  eligible.sort((a, b) => {
+    const scoreA = a.kairosScore + (a.valueBet?.isValue ? 5 : 0);
+    const scoreB = b.kairosScore + (b.valueBet?.isValue ? 5 : 0);
+    return scoreB - scoreA;
+  });
 
+  const selected = eligible.slice(0, maxMatches);
   if (selected.length === 0) return null;
 
   const totalOdd = selected.reduce((acc, e) => acc * e.oddHome, 1);
@@ -46,6 +51,7 @@ function buildTicket(events, budget, mode) {
   const globalScore = Math.round(selected.reduce((a, e) => a + e.kairosScore, 0) / selected.length);
   const worstMatch = selected.reduce((mn, e) => e.kairosScore < mn.kairosScore ? e : mn, selected[0]);
   const stakeAdvice = calculateStake(budget * 5, globalScore, totalOdd);
+  const valueBets = selected.filter(e => e.valueBet?.isValue).length;
 
   return {
     mode,
@@ -65,8 +71,11 @@ function buildTicket(events, budget, mode) {
         riskLevel: e.riskLevel,
         confidence: e.confidence,
         valueBet: e.valueBet,
+        trapData: e.trapData,
+        monteCarlo: e.monteCarlo,
         bestBookmaker: bookmakers[0],
-        bookmakers: bookmakers,
+        bookmakers,
+        explanation: buildExplanation(e),
       };
     }),
     matchCount: selected.length,
@@ -78,18 +87,72 @@ function buildTicket(events, budget, mode) {
     globalRisk: mode === 'prudent' ? 'Faible' : mode === 'equilibre' ? 'Moyen' : 'Élevé',
     worstMatch: `${worstMatch.sport} ${worstMatch.home} vs ${worstMatch.away} (score: ${worstMatch.kairosScore})`,
     stakeAdvice,
-    analyzed: events.length,
+    valueBetsCount: valueBets,
     bestBookmaker: getBestBookmaker(totalOdd)[0],
   };
+}
+
+// Explication "Pourquoi ce pari ?" en langage simple
+function buildExplanation(ev) {
+  const lines = [];
+
+  if (ev.breakdown) {
+    const positives = ev.breakdown.filter(b => b.good).slice(0, 3);
+    const negatives = ev.breakdown.filter(b => !b.good).slice(0, 2);
+
+    for (const p of positives) {
+      if (p.label.includes('Forme')) lines.push(`✅ ${ev.home} est en excellente forme récente`);
+      else if (p.label.includes('Motivation')) lines.push(`✅ Forte motivation pour ce match`);
+      else if (p.label.includes('Blessures adverses')) lines.push(`✅ L'adversaire a des blessés importants`);
+      else if (p.label.includes('Smart Money')) lines.push(`✅ Les gros parieurs misent sur ${ev.home}`);
+      else if (p.label.includes('H2H')) lines.push(`✅ Historique favorable contre cet adversaire`);
+      else if (p.label.includes('ligue premium')) lines.push(`✅ Données très fiables (ligue majeure)`);
+    }
+
+    for (const n of negatives) {
+      if (n.label.includes('Blessures propres')) lines.push(`⚠️ Quelques blessés dans l'équipe`);
+      else if (n.label.includes('Fatigue')) lines.push(`⚠️ Léger risque de fatigue`);
+      else if (n.label.includes('piège')) lines.push(`⚠️ Cote basse — attention au piège`);
+    }
+  }
+
+  if (ev.valueBet?.isValue) {
+    lines.push(`🔥 Value bet : IA estime ${ev.valueBet.kairosProb}% vs bookmaker ${ev.valueBet.bookmakerProb}%`);
+  }
+
+  if (ev.monteCarlo) {
+    lines.push(`🎲 Monte Carlo : ${ev.monteCarlo.home}% victoire domicile sur 10 000 simulations`);
+  }
+
+  return lines;
+}
+
+// Top 3 mondial — Bouton OPPORTUNITÉS MONDIALES
+function buildWorldTop3(events) {
+  const sorted = [...events]
+    .filter(e => !e.trapData?.isTrap)
+    .sort((a, b) => {
+      const scoreA = a.kairosScore + (a.valueBet?.isValue ? 10 : 0);
+      const scoreB = b.kairosScore + (b.valueBet?.isValue ? 10 : 0);
+      return scoreB - scoreA;
+    });
+
+  return sorted.slice(0, 3).map((e, i) => ({
+    rank: i + 1,
+    medal: i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉',
+    ...e,
+    explanation: buildExplanation(e),
+    bookmakers: getBestBookmaker(e.oddHome),
+    bestBookmaker: getBestBookmaker(e.oddHome)[0],
+  }));
 }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { budget = 100, mode = 'equilibre', minScore = 80 } = req.body;
+  const { budget = 100, mode = 'equilibre', minScore = 80, worldMode = false } = req.body;
 
   try {
-    // Récupérer les événements depuis le cache Supabase ou mock
     let events = [];
     const today = new Date().toISOString().split('T')[0];
 
@@ -102,42 +165,50 @@ export default async function handler(req, res) {
     if (cachedEvents && cachedEvents.length > 0) {
       events = cachedEvents.map(ev => ({
         id: ev.source_id,
-        sport: ev.sport === 'Football' ? '⚽' : ev.sport === 'Tennis' ? '🎾' : ev.sport === 'Basketball' ? '🏀' : '⚽',
-        sportName: ev.sport,
+        sport: '⚽', sportName: ev.sport,
         competition: ev.competition,
-        home: ev.home,
-        away: ev.away,
+        home: ev.home, away: ev.away,
         oddHome: 2.0,
         kairosScore: ev.ks_scores?.[0]?.score || 0,
         riskLevel: ev.ks_scores?.[0]?.risk_level || 'Moyen',
         confidence: ev.ks_scores?.[0]?.confidence || 0,
         valueBet: { bookmakerProb: 50, kairosProb: ev.ks_scores?.[0]?.probability || 50, value: 5, isValue: true },
+        trapData: { isTrap: false },
+        monteCarlo: { home: ev.ks_scores?.[0]?.probability || 50, draw: 25, away: 25 },
+        breakdown: ev.ks_scores?.[0]?.breakdown || [],
       }));
     } else {
       const { MOCK_EVENTS } = await import('../../lib/mock-data');
-      const { getMockOtherSports } = await import('./scanner');
-      events = [...MOCK_EVENTS];
+      events = MOCK_EVENTS.map(e => ({ ...e, trapData: { isTrap: false }, monteCarlo: { home: e.probability || 60, draw: 20, away: 20 } }));
     }
 
-    // Générer les 3 modes de ticket
+    // Mode OPPORTUNITÉS MONDIALES
+    if (worldMode) {
+      const top3 = buildWorldTop3(events);
+      if (top3.length === 0) {
+        return res.status(200).json({ success: true, silence: true, message: 'Aucune opportunité Premium mondiale. Conservez votre capital.' });
+      }
+      return res.status(200).json({ success: true, worldMode: true, top3, analyzed: events.length });
+    }
+
+    // Générer les 3 modes
     const prudent = buildTicket(events, budget, 'prudent');
     const equilibre = buildTicket(events, budget, 'equilibre');
     const agressif = buildTicket(events, budget, 'agressif');
 
-    // Si aucun ticket possible
     if (!prudent && !equilibre && !agressif) {
-      return res.status(200).json({
-        success: true,
-        silence: true,
-        message: 'Aucune opportunité Premium disponible. Recommandation : conserver votre capital.',
-        analyzed: events.length,
-      });
+      return res.status(200).json({ success: true, silence: true, message: 'Aucune opportunité Premium. Conservez votre capital.', analyzed: events.length });
     }
 
-    // Ticket recommandé selon le mode demandé
     const recommended = mode === 'prudent' ? prudent : mode === 'agressif' ? agressif : equilibre;
 
-    // Sauvegarder dans Supabase
+    // Coach psychologique
+    let psychWarnings = null;
+    try {
+      const { data: bets } = await supabase.from('ks_user_bets').select('*').order('created_at', { ascending: false }).limit(20);
+      if (bets) psychWarnings = psychologicalCoach(bets);
+    } catch {}
+
     if (recommended) {
       await supabase.from('ks_user_bets').insert({
         ticket_json: recommended,
@@ -151,11 +222,8 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       ticket: recommended,
-      tickets: {
-        prudent: prudent || null,
-        equilibre: equilibre || null,
-        agressif: agressif || null,
-      },
+      tickets: { prudent, equilibre, agressif },
+      psychWarnings,
     });
 
   } catch (err) {
