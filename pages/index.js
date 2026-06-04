@@ -96,6 +96,11 @@ export default function KairosSport() {
   const [generatedTicket, setGeneratedTicket] = useState(null);
   const [minScore, setMinScore] = useState(80);
   const [silenceMode, setSilenceMode] = useState(false);
+  useEffect(() => {
+  if (typeof window !== 'undefined' && localStorage.getItem('kairos_auth') !== 'ok') {
+    window.location.href = '/login';
+  }
+}, []);
   const fileRef = useRef();
 
   useEffect(() => { loadScanner(); loadUserStats(); }, []);
