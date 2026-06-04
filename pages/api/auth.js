@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const PASSWORD = 'TON_MOT_DE_PASSE';
+const PASSWORD = 'Tablerond123';
 const COOKIE_NAME = 'kairos_auth';
 
 export default function handler(req, res) {
