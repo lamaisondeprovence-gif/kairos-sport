@@ -1,4 +1,5 @@
 import { calculateKairosScore } from '../../lib/kairos-score';
+import { supabase } from '../../lib/supabase';
 
 const API_KEY = process.env.API_FOOTBALL_KEY;
 const BASE_URL = 'https://v3.football.api-sports.io';
@@ -53,13 +54,84 @@ async function getH2H(homeId, awayId) {
     if (!data || data.length === 0) return { favorable: false, score: 50 };
     let homeWins = 0;
     for (const match of data) {
-      const homeGoals = match.goals.home;
-      const awayGoals = match.goals.away;
-      if (homeGoals > awayGoals) homeWins++;
+      if (match.goals.home > match.goals.away) homeWins++;
     }
-    const h2hScore = (homeWins / data.length) * 100;
-    return { favorable: homeWins >= 3, score: h2hScore };
+    return { favorable: homeWins >= 3, score: (homeWins / data.length) * 100 };
   } catch { return { favorable: false, score: 50 }; }
+}
+
+async function buildEventsFromAPI() {
+  const today = new Date().toISOString().split('T')[0];
+  const season = new Date().getFullYear();
+  const fixtures = await fetchAPI(`/fixtures?date=${today}&status=NS`);
+  if (!fixtures || fixtures.length === 0) return [];
+
+  const analyzedEvents = [];
+  const limitedFixtures = fixtures.slice(0, 20);
+
+  for (const fixture of limitedFixtures) {
+    try {
+      const homeId = fixture.teams.home.id;
+      const awayId = fixture.teams.away.id;
+      const leagueId = fixture.league.id;
+
+      const [formHome, formAway, injuriesHome, injuriesAway, standingsHome, standingsAway, h2h] = await Promise.all([
+        getTeamForm(homeId, leagueId, season),
+        getTeamForm(awayId, leagueId, season),
+        getInjuries(homeId, leagueId, season),
+        getInjuries(awayId, leagueId, season),
+        getStandings(homeId, leagueId, season),
+        getStandings(awayId, leagueId, season),
+        getH2H(homeId, awayId),
+      ]);
+
+      const motivationHome = standingsHome.position <= 6 ? 80 : standingsHome.position <= 12 ? 60 : 40;
+      const motivationAway = standingsAway.position <= 6 ? 80 : standingsAway.position <= 12 ? 60 : 40;
+
+      const scoreData = calculateKairosScore({
+        formHome,
+        formAway,
+        motivationHome,
+        motivationAway,
+        fatigueHome: 30,
+        fatigueAway: 30,
+        injuriesHome,
+        injuriesAway,
+        h2hFavorable: h2h.favorable,
+        h2hScore: h2h.score,
+        weatherOk: true,
+        surfaceFavorable: true,
+        oddHome: 2.0,
+        dataCompleteness: 85,
+        smartMoneyHome: 50,
+      });
+
+      analyzedEvents.push({
+        id: `ft_${fixture.fixture.id}`,
+        sport: '⚽',
+        sportName: 'Football',
+        competition: fixture.league.name,
+        home: fixture.teams.home.name,
+        away: fixture.teams.away.name,
+        startTime: fixture.fixture.date,
+        oddHome: 2.0,
+        oddDraw: 3.2,
+        oddAway: 3.5,
+        kairosScore: scoreData.score,
+        riskLevel: scoreData.riskLevel,
+        confidence: scoreData.confidence,
+        probability: scoreData.probability,
+        dataQuality: scoreData.dataQuality,
+        breakdown: scoreData.breakdown,
+        smartMoney: { smallBettorsPct: 50, bigMoneyPct: 50, alert: false, direction: fixture.teams.home.name },
+        recommendation: scoreData.recommendation,
+      });
+    } catch (err) {
+      console.error('Error analyzing fixture:', err);
+    }
+  }
+
+  return analyzedEvents;
 }
 
 export default async function handler(req, res) {
@@ -67,6 +139,7 @@ export default async function handler(req, res) {
   const minScore = parseInt(req.query.minScore) || 80;
 
   try {
+    // Si pas de clé API, retourner les données mock
     if (!API_KEY || API_KEY === 'TA_CLE_API_FOOTBALL') {
       const { MOCK_EVENTS, MOCK_STATS } = await import('../../lib/mock-data');
       const premium = MOCK_EVENTS.filter(e => e.kairosScore >= minScore);
@@ -78,119 +151,99 @@ export default async function handler(req, res) {
     }
 
     const today = new Date().toISOString().split('T')[0];
-    const season = new Date().getFullYear();
-    const fixtures = await fetchAPI(`/fixtures?date=${today}&status=NS`);
 
-    if (!fixtures || fixtures.length === 0) {
-      return res.status(200).json({
-        success: true,
-        silence: true,
-        stats: { totalAnalyzed: 0, premiumCount: 0, ignoredCount: 0 },
-        events: [],
-      });
-    }
+    // ── VÉRIFIER LE CACHE SUPABASE ──
+    const { data: cached } = await supabase
+      .from('ks_events')
+      .select('*')
+      .gte('created_at', `${today}T00:00:00`)
+      .lte('created_at', `${today}T23:59:59`)
+      .limit(1);
 
-    const analyzedEvents = [];
+    let allEvents = [];
 
-    // Limiter à 20 matchs pour ne pas dépasser les 100 requêtes/jour
-    const limitedFixtures = fixtures.slice(0, 20);
+    if (cached && cached.length > 0) {
+      // ✅ Cache trouvé — lire depuis Supabase sans appeler l'API
+      const { data: cachedEvents } = await supabase
+        .from('ks_events')
+        .select('*, ks_scores(*)')
+        .gte('created_at', `${today}T00:00:00`)
+        .lte('created_at', `${today}T23:59:59`);
 
-    for (const fixture of limitedFixtures) {
-      try {
-        const homeId = fixture.teams.home.id;
-        const awayId = fixture.teams.away.id;
-        const leagueId = fixture.league.id;
+      allEvents = (cachedEvents || []).map(ev => ({
+        id: ev.source_id,
+        sport: '⚽',
+        sportName: ev.sport,
+        competition: ev.competition,
+        home: ev.home,
+        away: ev.away,
+        startTime: ev.start_time,
+        oddHome: 2.0,
+        oddDraw: 3.2,
+        oddAway: 3.5,
+        kairosScore: ev.ks_scores?.[0]?.score || 0,
+        riskLevel: ev.ks_scores?.[0]?.risk_level || 'Moyen',
+        confidence: ev.ks_scores?.[0]?.confidence || 0,
+        probability: ev.ks_scores?.[0]?.probability || 0,
+        dataQuality: ev.ks_scores?.[0]?.data_quality || 'Bonne',
+        breakdown: ev.ks_scores?.[0]?.breakdown || [],
+        smartMoney: ev.ks_scores?.[0]?.smart_money || {},
+        recommendation: 'parier',
+      }));
 
-        // Récupérer les données réelles en parallèle
-        const [formHome, formAway, injuriesHome, injuriesAway, standingsHome, standingsAway, h2h] = await Promise.all([
-          getTeamForm(homeId, leagueId, season),
-          getTeamForm(awayId, leagueId, season),
-          getInjuries(homeId, leagueId, season),
-          getInjuries(awayId, leagueId, season),
-          getStandings(homeId, leagueId, season),
-          getStandings(awayId, leagueId, season),
-          getH2H(homeId, awayId),
-        ]);
+    } else {
+      // 🔄 Pas de cache — appeler l'API une seule fois et sauvegarder
+      allEvents = await buildEventsFromAPI();
 
-        // Motivation basée sur le classement
-        const motivationHome = standingsHome.position <= 6 ? 80 : standingsHome.position <= 12 ? 60 : 40;
-        const motivationAway = standingsAway.position <= 6 ? 80 : standingsAway.position <= 12 ? 60 : 40;
+      // Sauvegarder dans Supabase pour toute la journée
+      for (const ev of allEvents) {
+        const { data: inserted } = await supabase
+          .from('ks_events')
+          .insert({
+            sport: ev.sportName,
+            competition: ev.competition,
+            home: ev.home,
+            away: ev.away,
+            start_time: ev.startTime,
+            source_id: ev.id,
+            status: 'upcoming',
+          })
+          .select()
+          .single();
 
-        // Calcul du Kairos Score avec vraies données
-        const scoreData = calculateKairosScore({
-          formHome,
-          formAway,
-          motivationHome,
-          motivationAway,
-          fatigueHome: 30,
-          fatigueAway: 30,
-          injuriesHome,
-          injuriesAway,
-          h2hFavorable: h2h.favorable,
-          h2hScore: h2h.score,
-          weatherOk: true,
-          surfaceFavorable: true,
-          oddHome: fixture.odds?.[0]?.bookmakers?.[0]?.bets?.[0]?.values?.[0]?.odd || 2.0,
-          dataCompleteness: 85,
-          smartMoneyHome: 50,
-        });
-
-        analyzedEvents.push({
-          id: `ft_${fixture.fixture.id}`,
-          sport: '⚽',
-          sportName: 'Football',
-          competition: fixture.league.name,
-          home: fixture.teams.home.name,
-          away: fixture.teams.away.name,
-          startTime: fixture.fixture.date,
-          oddHome: parseFloat(fixture.odds?.[0]?.bookmakers?.[0]?.bets?.[0]?.values?.[0]?.odd || 2.0),
-          oddDraw: parseFloat(fixture.odds?.[0]?.bookmakers?.[0]?.bets?.[0]?.values?.[1]?.odd || 3.2),
-          oddAway: parseFloat(fixture.odds?.[0]?.bookmakers?.[0]?.bets?.[0]?.values?.[2]?.odd || 3.5),
-          kairosScore: scoreData.score,
-          riskLevel: scoreData.riskLevel,
-          confidence: scoreData.confidence,
-          probability: scoreData.probability,
-          dataQuality: scoreData.dataQuality,
-          breakdown: scoreData.breakdown,
-          smartMoney: {
-            smallBettorsPct: 50,
-            bigMoneyPct: 50,
-            alert: false,
-            direction: fixture.teams.home.name,
-          },
-          recommendation: scoreData.recommendation,
-          realData: {
-            formHome,
-            formAway,
-            injuriesHome,
-            injuriesAway,
-            standingsHome,
-            standingsAway,
-          },
-        });
-      } catch (err) {
-        console.error('Error analyzing fixture:', err);
+        if (inserted) {
+          await supabase.from('ks_scores').insert({
+            event_id: inserted.id,
+            score: ev.kairosScore,
+            breakdown: ev.breakdown,
+            confidence: ev.confidence,
+            data_quality: ev.dataQuality,
+            probability: ev.probability,
+            risk_level: ev.riskLevel,
+            smart_money: ev.smartMoney,
+          });
+        }
       }
     }
 
-    const premium = analyzedEvents.filter(e => e.kairosScore >= minScore);
+    const premium = allEvents.filter(e => e.kairosScore >= minScore);
     premium.sort((a, b) => b.kairosScore - a.kairosScore);
 
     return res.status(200).json({
       success: true,
+      fromCache: cached && cached.length > 0,
       stats: {
-        totalAnalyzed: fixtures.length,
+        totalAnalyzed: allEvents.length,
         premiumCount: premium.length,
-        ignoredCount: analyzedEvents.length - premium.length,
+        ignoredCount: allEvents.length - premium.length,
         lastUpdated: new Date().toISOString(),
       },
       events: premium,
-      allEvents: analyzedEvents,
+      allEvents,
     });
 
   } catch (err) {
     console.error('Scanner error:', err);
     return res.status(500).json({ success: false, error: err.message });
   }
-          }
-            
+}
