@@ -2,31 +2,42 @@ import { calculateKairosScore } from '../../lib/kairos-score';
 import { supabase } from '../../lib/supabase';
 
 const API_KEY = process.env.API_FOOTBALL_KEY;
-const BASE_URL = 'https://v3.football.api-sports.io';
 
-async function fetchAPI(endpoint, host) {
-  const apiHost = host || 'v3.football.api-sports.io';
-  const baseUrl = host ? `https://${host}` : BASE_URL;
+// Endpoints par sport
+const APIS = {
+  football: 'https://v3.football.api-sports.io',
+  basketball: 'https://v3.basketball.api-sports.io',
+  rugby: 'https://v3.rugby.api-sports.io',
+  mma: 'https://v3.mma.api-sports.io',
+  formula1: 'https://v3.formula-1.api-sports.io',
+  hockey: 'https://v3.hockey.api-sports.io',
+  baseball: 'https://v3.baseball.api-sports.io',
+};
+
+async function fetchAPI(sport, endpoint) {
+  const baseUrl = APIS[sport] || APIS.football;
+  const host = baseUrl.replace('https://', '');
   const res = await fetch(`${baseUrl}${endpoint}`, {
     headers: {
       'x-rapidapi-key': API_KEY,
-      'x-rapidapi-host': apiHost,
+      'x-rapidapi-host': host,
     },
   });
   const data = await res.json();
   return data.response || [];
 }
 
+// ── FOOTBALL (données complètes — 7500 req/jour) ──
 async function getTeamForm(teamId, leagueId, season) {
   try {
-    const data = await fetchAPI(`/teams/statistics?team=${teamId}&league=${leagueId}&season=${season}`);
+    const data = await fetchAPI('football', `/teams/statistics?team=${teamId}&league=${leagueId}&season=${season}`);
     if (!data || !data.form) return 50;
     const form = data.form.slice(-5);
     let score = 50;
-    for (const result of form) {
-      if (result === 'W') score += 10;
-      else if (result === 'D') score += 2;
-      else if (result === 'L') score -= 8;
+    for (const r of form) {
+      if (r === 'W') score += 10;
+      else if (r === 'D') score += 2;
+      else if (r === 'L') score -= 8;
     }
     return Math.max(0, Math.min(100, score));
   } catch { return 50; }
@@ -34,14 +45,14 @@ async function getTeamForm(teamId, leagueId, season) {
 
 async function getInjuries(teamId, leagueId, season) {
   try {
-    const data = await fetchAPI(`/injuries?team=${teamId}&league=${leagueId}&season=${season}`);
+    const data = await fetchAPI('football', `/injuries?team=${teamId}&league=${leagueId}&season=${season}`);
     return data.length || 0;
   } catch { return 0; }
 }
 
 async function getStandings(teamId, leagueId, season) {
   try {
-    const data = await fetchAPI(`/standings?league=${leagueId}&season=${season}`);
+    const data = await fetchAPI('football', `/standings?league=${leagueId}&season=${season}`);
     if (!data || !data[0]) return { position: 10, points: 0 };
     const standings = data[0]?.league?.standings?.[0] || [];
     const team = standings.find(s => s.team.id === teamId);
@@ -52,7 +63,7 @@ async function getStandings(teamId, leagueId, season) {
 
 async function getH2H(homeId, awayId) {
   try {
-    const data = await fetchAPI(`/fixtures/headtohead?h2h=${homeId}-${awayId}&last=5`);
+    const data = await fetchAPI('football', `/fixtures/headtohead?h2h=${homeId}-${awayId}&last=5`);
     if (!data || data.length === 0) return { favorable: false, score: 50 };
     let homeWins = 0;
     for (const match of data) {
@@ -62,155 +73,29 @@ async function getH2H(homeId, awayId) {
   } catch { return { favorable: false, score: 50 }; }
 }
 
-// Données mock pour les autres sports (Tennis, Basket, Rugby, UFC, F1)
-function getMockOtherSports() {
-  return [
-    {
-      id: 'tennis_001',
-      sport: '🎾',
-      sportName: 'Tennis',
-      competition: 'ATP 500',
-      home: 'Djokovic',
-      away: 'Alcaraz',
-      startTime: new Date(Date.now() + 3600000 * 3).toISOString(),
-      oddHome: 1.75,
-      oddDraw: null,
-      oddAway: 2.05,
-      kairosScore: 84,
-      riskLevel: 'Moyen',
-      confidence: 79,
-      probability: 68,
-      dataQuality: 'Bonne',
-      breakdown: [
-        { label: 'Forme récente', value: +14, good: true },
-        { label: 'Surface favorable', value: +10, good: true },
-        { label: 'H2H favorable', value: +8, good: true },
-        { label: 'Fatigue', value: -6, good: false },
-        { label: 'Pression médiatique', value: -4, good: false },
-      ],
-      smartMoney: { smallBettorsPct: 55, bigMoneyPct: 65, alert: false, direction: 'Djokovic' },
-      recommendation: 'parier',
-      valueBet: { bookmakerProb: 57, kairosProb: 68, value: 11, isValue: true },
-    },
-    {
-      id: 'basket_001',
-      sport: '🏀',
-      sportName: 'Basketball',
-      competition: 'NBA',
-      home: 'Boston Celtics',
-      away: 'Miami Heat',
-      startTime: new Date(Date.now() + 3600000 * 5).toISOString(),
-      oddHome: 1.60,
-      oddDraw: null,
-      oddAway: 2.30,
-      kairosScore: 88,
-      riskLevel: 'Faible',
-      confidence: 91,
-      probability: 74,
-      dataQuality: 'Excellente',
-      breakdown: [
-        { label: 'Forme récente excellente', value: +18, good: true },
-        { label: 'Motivation playoffs', value: +15, good: true },
-        { label: 'Blessures adverses', value: +10, good: true },
-        { label: 'Smart Money', value: +8, good: true },
-        { label: 'Fatigue calendrier', value: -5, good: false },
-      ],
-      smartMoney: { smallBettorsPct: 48, bigMoneyPct: 72, alert: true, alertMsg: 'Gros argent vers Celtics (72%)', direction: 'Boston Celtics' },
-      recommendation: 'parier',
-      valueBet: { bookmakerProb: 62, kairosProb: 74, value: 12, isValue: true },
-    },
-    {
-      id: 'rugby_001',
-      sport: '🏉',
-      sportName: 'Rugby',
-      competition: 'Top 14',
-      home: 'Stade Toulousain',
-      away: 'Racing 92',
-      startTime: new Date(Date.now() + 3600000 * 7).toISOString(),
-      oddHome: 1.85,
-      oddDraw: 11.0,
-      oddAway: 1.95,
-      kairosScore: 82,
-      riskLevel: 'Moyen',
-      confidence: 76,
-      probability: 69,
-      dataQuality: 'Bonne',
-      breakdown: [
-        { label: 'Forme récente', value: +12, good: true },
-        { label: 'Motivation finale', value: +14, good: true },
-        { label: 'Avantage domicile', value: +8, good: true },
-        { label: 'Blessures (2)', value: -6, good: false },
-        { label: 'Données partielles', value: -4, good: false },
-      ],
-      smartMoney: { smallBettorsPct: 52, bigMoneyPct: 58, alert: false, direction: 'Stade Toulousain' },
-      recommendation: 'parier',
-      valueBet: { bookmakerProb: 54, kairosProb: 69, value: 15, isValue: true },
-    },
-    {
-      id: 'ufc_001',
-      sport: '🥊',
-      sportName: 'UFC',
-      competition: 'UFC 302',
-      home: 'Islam Makhachev',
-      away: 'Dustin Poirier',
-      startTime: new Date(Date.now() + 3600000 * 10).toISOString(),
-      oddHome: 1.35,
-      oddDraw: null,
-      oddAway: 3.10,
-      kairosScore: 86,
-      riskLevel: 'Faible',
-      confidence: 88,
-      probability: 78,
-      dataQuality: 'Excellente',
-      breakdown: [
-        { label: 'Forme récente', value: +16, good: true },
-        { label: 'Style favorable', value: +12, good: true },
-        { label: 'Motivation titre', value: +14, good: true },
-        { label: 'Cote basse (risque)', value: -6, good: false },
-        { label: 'Pression médiatique', value: -3, good: false },
-      ],
-      smartMoney: { smallBettorsPct: 70, bigMoneyPct: 80, alert: false, direction: 'Islam Makhachev' },
-      recommendation: 'parier',
-      valueBet: { bookmakerProb: 74, kairosProb: 78, value: 4, isValue: false },
-    },
-    {
-      id: 'f1_001',
-      sport: '🏎️',
-      sportName: 'Formule 1',
-      competition: 'Grand Prix Monaco',
-      home: 'Max Verstappen',
-      away: 'Charles Leclerc',
-      startTime: new Date(Date.now() + 3600000 * 24).toISOString(),
-      oddHome: 2.10,
-      oddDraw: null,
-      oddAway: 2.80,
-      kairosScore: 81,
-      riskLevel: 'Moyen',
-      confidence: 74,
-      probability: 65,
-      dataQuality: 'Bonne',
-      breakdown: [
-        { label: 'Forme récente', value: +14, good: true },
-        { label: 'Circuit favorable', value: +10, good: true },
-        { label: 'Qualifications', value: +8, good: true },
-        { label: 'Météo incertaine', value: -7, good: false },
-        { label: 'Données partielles', value: -5, good: false },
-      ],
-      smartMoney: { smallBettorsPct: 45, bigMoneyPct: 55, alert: false, direction: 'Max Verstappen' },
-      recommendation: 'surveiller',
-      valueBet: { bookmakerProb: 48, kairosProb: 65, value: 17, isValue: true },
-    },
-  ];
+async function getOdds(fixtureId) {
+  try {
+    const data = await fetchAPI('football', `/odds?fixture=${fixtureId}&bookmaker=8`);
+    if (!data || data.length === 0) return { home: 2.0, draw: 3.2, away: 3.5 };
+    const bets = data[0]?.bookmakers?.[0]?.bets?.find(b => b.name === 'Match Winner');
+    if (!bets) return { home: 2.0, draw: 3.2, away: 3.5 };
+    return {
+      home: parseFloat(bets.values.find(v => v.value === 'Home')?.odd || 2.0),
+      draw: parseFloat(bets.values.find(v => v.value === 'Draw')?.odd || 3.2),
+      away: parseFloat(bets.values.find(v => v.value === 'Away')?.odd || 3.5),
+    };
+  } catch { return { home: 2.0, draw: 3.2, away: 3.5 }; }
 }
 
-async function buildEventsFromAPI() {
+async function buildFootballEvents() {
   const today = new Date().toISOString().split('T')[0];
   const season = new Date().getFullYear();
-  const fixtures = await fetchAPI(`/fixtures?date=${today}&status=NS`);
-  if (!fixtures || fixtures.length === 0) return getMockOtherSports();
+  const fixtures = await fetchAPI('football', `/fixtures?date=${today}&status=NS`);
+  if (!fixtures || fixtures.length === 0) return [];
 
   const analyzedEvents = [];
-  const limitedFixtures = fixtures.slice(0, 15);
+  // Avec 7500 req/jour on peut analyser 50 matchs en profondeur
+  const limitedFixtures = fixtures.slice(0, 50);
 
   for (const fixture of limitedFixtures) {
     try {
@@ -218,7 +103,7 @@ async function buildEventsFromAPI() {
       const awayId = fixture.teams.away.id;
       const leagueId = fixture.league.id;
 
-      const [formHome, formAway, injuriesHome, injuriesAway, standingsHome, standingsAway, h2h] = await Promise.all([
+      const [formHome, formAway, injuriesHome, injuriesAway, standingsHome, standingsAway, h2h, odds] = await Promise.all([
         getTeamForm(homeId, leagueId, season),
         getTeamForm(awayId, leagueId, season),
         getInjuries(homeId, leagueId, season),
@@ -226,6 +111,7 @@ async function buildEventsFromAPI() {
         getStandings(homeId, leagueId, season),
         getStandings(awayId, leagueId, season),
         getH2H(homeId, awayId),
+        getOdds(fixture.fixture.id),
       ]);
 
       const motivationHome = standingsHome.position <= 6 ? 80 : standingsHome.position <= 12 ? 60 : 40;
@@ -237,16 +123,15 @@ async function buildEventsFromAPI() {
         injuriesHome, injuriesAway,
         h2hFavorable: h2h.favorable, h2hScore: h2h.score,
         weatherOk: true, surfaceFavorable: true,
-        oddHome: 2.0, dataCompleteness: 85, smartMoneyHome: 50,
+        oddHome: odds.home, dataCompleteness: 90, smartMoneyHome: 50,
       });
 
-      const bookmakerProb = Math.round(100 / 2.0);
-      const kairosProb = scoreData.probability;
-      const valueData = {
+      const bookmakerProb = Math.round(100 / odds.home);
+      const valueBet = {
         bookmakerProb,
-        kairosProb,
-        value: kairosProb - bookmakerProb,
-        isValue: kairosProb - bookmakerProb >= 5,
+        kairosProb: scoreData.probability,
+        value: scoreData.probability - bookmakerProb,
+        isValue: scoreData.probability - bookmakerProb >= 5,
       };
 
       analyzedEvents.push({
@@ -257,7 +142,9 @@ async function buildEventsFromAPI() {
         home: fixture.teams.home.name,
         away: fixture.teams.away.name,
         startTime: fixture.fixture.date,
-        oddHome: 2.0, oddDraw: 3.2, oddAway: 3.5,
+        oddHome: odds.home,
+        oddDraw: odds.draw,
+        oddAway: odds.away,
         kairosScore: scoreData.score,
         riskLevel: scoreData.riskLevel,
         confidence: scoreData.confidence,
@@ -266,16 +153,99 @@ async function buildEventsFromAPI() {
         breakdown: scoreData.breakdown,
         smartMoney: { smallBettorsPct: 50, bigMoneyPct: 50, alert: false, direction: fixture.teams.home.name },
         recommendation: scoreData.recommendation,
-        valueBet: valueData,
+        valueBet,
       });
     } catch (err) {
       console.error('Error analyzing fixture:', err);
     }
   }
+  return analyzedEvents;
+}
 
-  // Ajouter les autres sports
-  const otherSports = getMockOtherSports();
-  return [...analyzedEvents, ...otherSports];
+// ── AUTRES SPORTS (données basiques — 100 req/jour chacun) ──
+async function buildOtherSportsEvents() {
+  const today = new Date().toISOString().split('T')[0];
+  const events = [];
+
+  // Basketball NBA
+  try {
+    const games = await fetchAPI('basketball', `/games?date=${today}&league=12`);
+    for (const game of (games || []).slice(0, 5)) {
+      const scoreData = calculateKairosScore({ formHome: 55, formAway: 45, dataCompleteness: 60, oddHome: 1.9 });
+      events.push({
+        id: `bk_${game.id}`,
+        sport: '🏀', sportName: 'Basketball',
+        competition: game.league?.name || 'NBA',
+        home: game.teams?.home?.name || 'Home',
+        away: game.teams?.away?.name || 'Away',
+        startTime: game.date,
+        oddHome: 1.90, oddDraw: null, oddAway: 1.90,
+        kairosScore: scoreData.score,
+        riskLevel: scoreData.riskLevel,
+        confidence: scoreData.confidence,
+        probability: scoreData.probability,
+        dataQuality: 'Partielle',
+        breakdown: scoreData.breakdown,
+        smartMoney: { smallBettorsPct: 50, bigMoneyPct: 50, alert: false },
+        recommendation: scoreData.recommendation,
+        valueBet: { bookmakerProb: 53, kairosProb: scoreData.probability, value: scoreData.probability - 53, isValue: scoreData.probability > 58 },
+      });
+    }
+  } catch {}
+
+  // Rugby
+  try {
+    const games = await fetchAPI('rugby', `/games?date=${today}`);
+    for (const game of (games || []).slice(0, 3)) {
+      const scoreData = calculateKairosScore({ formHome: 52, formAway: 48, dataCompleteness: 60, oddHome: 2.0 });
+      events.push({
+        id: `rug_${game.id}`,
+        sport: '🏉', sportName: 'Rugby',
+        competition: game.league?.name || 'Rugby',
+        home: game.teams?.home?.name || 'Home',
+        away: game.teams?.away?.name || 'Away',
+        startTime: game.date,
+        oddHome: 2.0, oddDraw: 12.0, oddAway: 1.80,
+        kairosScore: scoreData.score,
+        riskLevel: scoreData.riskLevel,
+        confidence: scoreData.confidence,
+        probability: scoreData.probability,
+        dataQuality: 'Partielle',
+        breakdown: scoreData.breakdown,
+        smartMoney: { smallBettorsPct: 50, bigMoneyPct: 50, alert: false },
+        recommendation: scoreData.recommendation,
+        valueBet: { bookmakerProb: 50, kairosProb: scoreData.probability, value: scoreData.probability - 50, isValue: scoreData.probability > 55 },
+      });
+    }
+  } catch {}
+
+  // Hockey
+  try {
+    const games = await fetchAPI('hockey', `/games?date=${today}`);
+    for (const game of (games || []).slice(0, 3)) {
+      const scoreData = calculateKairosScore({ formHome: 53, formAway: 47, dataCompleteness: 60, oddHome: 1.95 });
+      events.push({
+        id: `hk_${game.id}`,
+        sport: '🏒', sportName: 'Hockey',
+        competition: game.league?.name || 'Hockey',
+        home: game.teams?.home?.name || 'Home',
+        away: game.teams?.away?.name || 'Away',
+        startTime: game.date,
+        oddHome: 1.95, oddDraw: null, oddAway: 1.85,
+        kairosScore: scoreData.score,
+        riskLevel: scoreData.riskLevel,
+        confidence: scoreData.confidence,
+        probability: scoreData.probability,
+        dataQuality: 'Partielle',
+        breakdown: scoreData.breakdown,
+        smartMoney: { smallBettorsPct: 50, bigMoneyPct: 50, alert: false },
+        recommendation: scoreData.recommendation,
+        valueBet: { bookmakerProb: 51, kairosProb: scoreData.probability, value: scoreData.probability - 51, isValue: scoreData.probability > 56 },
+      });
+    }
+  } catch {}
+
+  return events;
 }
 
 export default async function handler(req, res) {
@@ -284,18 +254,18 @@ export default async function handler(req, res) {
 
   try {
     if (!API_KEY || API_KEY === 'TA_CLE_API_FOOTBALL') {
-      const { MOCK_EVENTS, MOCK_STATS } = await import('../../lib/mock-data');
-      const allEvents = [...MOCK_EVENTS, ...getMockOtherSports()];
-      const premium = allEvents.filter(e => e.kairosScore >= minScore);
+      const { MOCK_EVENTS } = await import('../../lib/mock-data');
+      const premium = MOCK_EVENTS.filter(e => e.kairosScore >= minScore);
       return res.status(200).json({
         success: true,
-        stats: { totalAnalyzed: allEvents.length, premiumCount: premium.length, ignoredCount: allEvents.length - premium.length },
+        stats: { totalAnalyzed: MOCK_EVENTS.length, premiumCount: premium.length, ignoredCount: MOCK_EVENTS.length - premium.length },
         events: premium,
       });
     }
 
     const today = new Date().toISOString().split('T')[0];
 
+    // Vérifier le cache Supabase
     const { data: cached } = await supabase
       .from('ks_events')
       .select('*')
@@ -306,6 +276,7 @@ export default async function handler(req, res) {
     let allEvents = [];
 
     if (cached && cached.length > 0) {
+      // Lire depuis le cache
       const { data: cachedEvents } = await supabase
         .from('ks_events')
         .select('*, ks_scores(*)')
@@ -314,7 +285,7 @@ export default async function handler(req, res) {
 
       allEvents = (cachedEvents || []).map(ev => ({
         id: ev.source_id,
-        sport: ev.sport === 'Football' ? '⚽' : ev.sport === 'Tennis' ? '🎾' : ev.sport === 'Basketball' ? '🏀' : '⚽',
+        sport: ev.sport === 'Football' ? '⚽' : ev.sport === 'Basketball' ? '🏀' : ev.sport === 'Rugby' ? '🏉' : ev.sport === 'Hockey' ? '🏒' : '⚽',
         sportName: ev.sport,
         competition: ev.competition,
         home: ev.home,
@@ -331,10 +302,18 @@ export default async function handler(req, res) {
         recommendation: 'parier',
         valueBet: { bookmakerProb: 50, kairosProb: ev.ks_scores?.[0]?.probability || 50, value: (ev.ks_scores?.[0]?.probability || 50) - 50, isValue: (ev.ks_scores?.[0]?.probability || 50) > 55 },
       }));
-    } else {
-      allEvents = await buildEventsFromAPI();
 
-      for (const ev of allEvents.filter(e => e.sportName === 'Football')) {
+    } else {
+      // Appel API une seule fois par jour
+      const [footballEvents, otherEvents] = await Promise.all([
+        buildFootballEvents(),
+        buildOtherSportsEvents(),
+      ]);
+
+      allEvents = [...footballEvents, ...otherEvents];
+
+      // Sauvegarder dans Supabase
+      for (const ev of allEvents) {
         const { data: inserted } = await supabase
           .from('ks_events')
           .insert({ sport: ev.sportName, competition: ev.competition, home: ev.home, away: ev.away, start_time: ev.startTime, source_id: ev.id, status: 'upcoming' })
@@ -375,5 +354,4 @@ export default async function handler(req, res) {
     console.error('Scanner error:', err);
     return res.status(500).json({ success: false, error: err.message });
   }
-          }
-            
+}
