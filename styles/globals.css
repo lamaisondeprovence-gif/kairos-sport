@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap');
+
+:root {
+  --bg-deep: #07090f;
+  --bg-base: #0c0f1a;
+  --bg-card: #111828;
+  --bg-hover: #161e2e;
+  --border: #1e2a40;
+  --border-glow: #00FFB244;
+  --green: #00FFB2;
+  --green-dim: #00FFB220;
+  --gold: #FFD700;
+  --gold-dim: #FFD70020;
+  --red: #FF4D6D;
+  --red-dim: #FF4D6D20;
+  --text-primary: #e8f0fe;
+  --text-secondary: #8896a8;
+  --text-muted: #3a4a5c;
+  --font-mono: 'Share Tech Mono', monospace;
+  --font-display: 'Rajdhani', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 10px #00FFB230; }
+  50% { box-shadow: 0 0 25px #00FFB250, 0 0 50px #00FFB220; }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.fade-up { animation: fadeUp 0.4s ease forwards; }
+.slide-in { animation: slideIn 0.3s ease forwards; }
+.pulse { animation: pulse 2s ease infinite; }
+.glow-anim { animation: glow 3s ease infinite; }
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(0,255,178,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,255,178,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
