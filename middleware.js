@@ -1,21 +1,23 @@
 import { NextResponse } from 'next/server';
 
-const PASSWORD = 'Tableronde123';
 const COOKIE_NAME = 'kairos_auth';
+const PASSWORD = 'TON_MOT_DE_PASSE';
 
 export function middleware(request) {
-  const cookie = request.cookies.get(COOKIE_NAME);
-  if (cookie?.value === PASSWORD) return NextResponse.next();
+  const { pathname } = request.nextUrl;
 
-  const url = request.nextUrl;
-  if (url.pathname === '/api/auth') return NextResponse.next();
-
-  if (url.pathname !== '/login') {
-    return NextResponse.redirect(new URL('/login', request.url));
+  if (pathname.startsWith('/api/') || pathname.startsWith('/_next/') || pathname === '/login') {
+    return NextResponse.next();
   }
-  return NextResponse.next();
+
+  const cookie = request.cookies.get(COOKIE_NAME);
+  if (cookie?.value === PASSWORD) {
+    return NextResponse.next();
+  }
+
+  return NextResponse.redirect(new URL('/login', request.url));
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|icons|favicon.ico).*)'],
 };
