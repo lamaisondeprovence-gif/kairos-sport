@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Head from 'next/head';
 
-const SCREENS = { HOME: 'home', SCANNER: 'scanner', DETAIL: 'detail', GENERATOR: 'generator', CALCULATOR: 'calculator', IMPORT: 'import', COACH: 'coach', SILENCE: 'silence' };
+const SCREENS = { HOME: 'home', SCANNER: 'scanner', DETAIL: 'detail', GENERATOR: 'generator', CALCULATOR: 'calculator', IMPORT: 'import', COACH: 'coach', SILENCE: 'silence', HISTORY: 'history' };
 
 const S = {
   app: { background: 'var(--bg-deep)', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', fontFamily: 'var(--font-display)' },
@@ -19,6 +19,8 @@ const S = {
   btnGhost: { background: 'transparent', color: 'var(--green)', border: '1px solid var(--border-glow)', borderRadius: 12, padding: '10px 16px', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12, letterSpacing: 1, cursor: 'pointer', textTransform: 'uppercase' },
   btnSmall: { background: 'transparent', color: 'var(--green)', border: '1px solid var(--border-glow)', borderRadius: 8, padding: '6px 12px', fontFamily: 'var(--font-mono)', fontSize: 10, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: 1 },
   btnPlay: { background: 'linear-gradient(135deg, #FFD700, #FF8C00)', color: '#07090f', border: 'none', borderRadius: 12, padding: '14px 20px', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13, letterSpacing: 2, cursor: 'pointer', width: '100%', textTransform: 'uppercase' },
+  btnCopy: { background: '#ffffff15', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 14px', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: 1 },
+  btnDanger: { background: 'transparent', color: 'var(--red)', border: '1px solid #FF4D6D44', borderRadius: 8, padding: '6px 12px', fontFamily: 'var(--font-mono)', fontSize: 10, cursor: 'pointer', textTransform: 'uppercase' },
   backBtn: { background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, letterSpacing: 2, padding: '12px 0', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 },
   input: { background: 'var(--bg-deep)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 14, width: '100%', outline: 'none' },
   section: { color: 'var(--text-muted)', fontSize: 10, letterSpacing: 3, textTransform: 'uppercase', margin: '18px 0 8px', fontFamily: 'var(--font-mono)' },
@@ -47,15 +49,11 @@ const Badge = ({ text, color = 'var(--green)' }) => (
 
 const ValueBadge = ({ valueBet }) => {
   if (!valueBet || !valueBet.isValue) return null;
-  return (
-    <span style={{ background: '#FF6B0020', color: '#FF6B00', border: '1px solid #FF6B0044', padding: '2px 8px', borderRadius: 20, fontSize: 9, fontWeight: 700, letterSpacing: 1, fontFamily: 'var(--font-mono)' }}>
-      🔥 VALUE +{valueBet.value}%
-    </span>
-  );
+  return <span style={{ background: '#FF6B0020', color: '#FF6B00', border: '1px solid #FF6B0044', padding: '2px 8px', borderRadius: 20, fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>🔥 VALUE +{valueBet.value}%</span>;
 };
 
 const EventCard = ({ ev, onSelect, onAdd, inTicket }) => (
-  <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px', marginBottom: 10, cursor: 'pointer' }} onClick={() => onSelect(ev)}>
+  <div style={{ ...S.card, cursor: 'pointer' }} onClick={() => onSelect(ev)}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
       <div style={{ flex: 1, marginRight: 12 }}>
         <div style={{ color: 'var(--text-muted)', fontSize: 10, letterSpacing: 1, marginBottom: 4, fontFamily: 'var(--font-mono)' }}>{ev.sport} {ev.competition}</div>
@@ -71,8 +69,7 @@ const EventCard = ({ ev, onSelect, onAdd, inTicket }) => (
       <ScoreRing score={ev.kairosScore} size={60} />
     </div>
     <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-      <button style={{ background: 'transparent', color: 'var(--green)', border: '1px solid var(--border-glow)', borderRadius: 8, padding: '6px 12px', fontFamily: 'var(--font-mono)', fontSize: 10, cursor: 'pointer', textTransform: 'uppercase', flex: 1 }}
-        onClick={e => { e.stopPropagation(); onSelect(ev); }}>Analyser</button>
+      <button style={{ ...S.btnSmall, flex: 1 }} onClick={e => { e.stopPropagation(); onSelect(ev); }}>Analyser</button>
       <button style={{ background: inTicket ? 'var(--border)' : 'var(--green)', color: inTicket ? 'var(--text-muted)' : '#07090f', border: 'none', borderRadius: 8, padding: '6px 12px', fontFamily: 'var(--font-mono)', fontSize: 10, cursor: 'pointer', textTransform: 'uppercase', flex: 1 }}
         onClick={e => { e.stopPropagation(); onAdd(ev); }}>
         {inTicket ? '✓ Ajouté' : '+ Ticket'}
@@ -88,31 +85,19 @@ const Loader = ({ text }) => (
   </div>
 );
 
-const BookmakerCard = ({ bookmakers, totalOdd }) => {
-  if (!bookmakers || bookmakers.length === 0) return null;
-  const best = bookmakers[0];
-  return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid #FFD70044', borderRadius: 14, padding: '14px 16px', marginBottom: 10 }}>
-      <div style={{ color: 'var(--gold)', fontSize: 11, fontWeight: 700, marginBottom: 10, fontFamily: 'var(--font-mono)' }}>🏆 COMPARATEUR BOOKMAKERS BELGES</div>
-      {bookmakers.map((b, i) => (
-        <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {i === 0 && <span style={{ color: 'var(--gold)', fontSize: 12 }}>🥇</span>}
-            {i === 1 && <span style={{ color: '#C0C0C0', fontSize: 12 }}>🥈</span>}
-            {i === 2 && <span style={{ color: '#CD7F32', fontSize: 12 }}>🥉</span>}
-            {i > 2 && <span style={{ width: 20 }} />}
-            <span style={{ color: i === 0 ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: 13, fontWeight: i === 0 ? 700 : 400 }}>{b.name}</span>
-          </div>
-          <span style={{ color: i === 0 ? 'var(--gold)' : 'var(--text-muted)', fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 14 }}>@{b.odd}</span>
-        </div>
-      ))}
-      <a href={best.url} target="_blank" rel="noopener noreferrer"
-        style={{ display: 'block', background: 'linear-gradient(135deg, #FFD700, #FF8C00)', color: '#07090f', border: 'none', borderRadius: 10, padding: '12px', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12, cursor: 'pointer', textTransform: 'uppercase', textAlign: 'center', textDecoration: 'none', marginTop: 10, letterSpacing: 2 }}>
-        🎯 JOUER SUR {best.name} →
-      </a>
-    </div>
-  );
-};
+function formatTicketForCopy(ticket) {
+  const date = new Date().toLocaleDateString('fr-BE');
+  let text = `⚡ KAIROS SPORT — ${date}\n`;
+  text += `Score : ${ticket.globalScore}/100 | Risque : ${ticket.globalRisk}\n\n`;
+  for (const m of ticket.matches) {
+    text += `${m.sport} ${m.home} vs ${m.away} @${m.odd}\n`;
+  }
+  text += `\nCote totale : ${ticket.totalOdd}\n`;
+  text += `Mise : ${ticket.stake}€ → Gain potentiel : ${ticket.potentialGain}€\n`;
+  if (ticket.bestBookmaker) text += `🏆 Meilleure cote : ${ticket.bestBookmaker.name}\n`;
+  text += `\n⚠️ Aucun pari n'est garanti. Jouez responsable.`;
+  return text;
+}
 
 export default function KairosSport() {
   const [screen, setScreen] = useState(SCREENS.HOME);
@@ -134,6 +119,8 @@ export default function KairosSport() {
   const [activeTicket, setActiveTicket] = useState(null);
   const [minScore, setMinScore] = useState(80);
   const [silenceMode, setSilenceMode] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [copyMsg, setCopyMsg] = useState('');
   const fileRef = useRef();
 
   useEffect(() => {
@@ -142,7 +129,11 @@ export default function KairosSport() {
     }
   }, []);
 
-  useEffect(() => { loadScanner(); loadUserStats(); }, []);
+  useEffect(() => {
+    loadScanner();
+    loadUserStats();
+    loadHistory();
+  }, []);
 
   const loadScanner = async (ms = 80) => {
     try {
@@ -158,6 +149,45 @@ export default function KairosSport() {
       const data = await res.json();
       if (data.success) setUserStats(data.stats);
     } catch {}
+  };
+
+  const loadHistory = () => {
+    try {
+      const saved = localStorage.getItem('kairos_history');
+      if (saved) setHistory(JSON.parse(saved));
+    } catch {}
+  };
+
+  const saveToHistory = (t) => {
+    try {
+      const newEntry = { ...t, savedAt: new Date().toISOString(), id: Date.now(), result: 'pending' };
+      const newHistory = [newEntry, ...history].slice(0, 50);
+      setHistory(newHistory);
+      localStorage.setItem('kairos_history', JSON.stringify(newHistory));
+    } catch {}
+  };
+
+  const deleteFromHistory = (id) => {
+    const newHistory = history.filter(h => h.id !== id);
+    setHistory(newHistory);
+    localStorage.setItem('kairos_history', JSON.stringify(newHistory));
+  };
+
+  const updateResult = (id, result) => {
+    const newHistory = history.map(h => h.id === id ? { ...h, result } : h);
+    setHistory(newHistory);
+    localStorage.setItem('kairos_history', JSON.stringify(newHistory));
+  };
+
+  const copyTicket = (t) => {
+    const text = formatTicketForCopy(t);
+    navigator.clipboard.writeText(text).then(() => {
+      setCopyMsg('✅ Copié !');
+      setTimeout(() => setCopyMsg(''), 2000);
+    }).catch(() => {
+      setCopyMsg('❌ Erreur');
+      setTimeout(() => setCopyMsg(''), 2000);
+    });
   };
 
   const addToTicket = useCallback((ev) => {
@@ -225,23 +255,17 @@ export default function KairosSport() {
         <div style={{ color: 'var(--text-muted)', fontSize: 10, letterSpacing: 4, marginTop: 4, fontFamily: 'var(--font-mono)' }}>TROUVER PEU · TROUVER LE MEILLEUR</div>
       </div>
 
-      {/* Ticket du jour — visible dès l'ouverture */}
       {!silenceMode && events.length > 0 && (
-        <div style={{ ...S.cardGreen, marginBottom: 14 }}>
+        <div style={S.cardGreen}>
           <div style={{ color: 'var(--green)', fontWeight: 700, fontSize: 13, marginBottom: 10 }}>🥇 TICKET DU JOUR</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
             <div><div style={S.label}>Score</div><div style={{ color: 'var(--green)', fontWeight: 700, fontSize: 20, fontFamily: 'var(--font-mono)' }}>{events[0]?.kairosScore}/100</div></div>
             <div><div style={S.label}>Mise 100€</div><div style={{ color: 'var(--gold)', fontWeight: 700, fontSize: 20, fontFamily: 'var(--font-mono)' }}>{(100 * (events[0]?.oddHome || 2)).toFixed(0)} €</div></div>
           </div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 10 }}>
-            {events[0]?.sport} {events[0]?.home} vs {events[0]?.away}
-          </div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 10 }}>{events[0]?.sport} {events[0]?.home} vs {events[0]?.away}</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button style={{ ...S.btn, flex: 1, padding: '10px' }} onClick={() => goTo(SCREENS.GENERATOR)}>GÉNÉRER MON TICKET</button>
-            <button style={{ ...S.btnPlay, flex: 1, padding: '10px', fontSize: 11 }}
-              onClick={() => window.open('https://www.unibet.be', '_blank')}>
-              🎯 JOUER
-            </button>
+            <button style={{ ...S.btnPlay, flex: 1, padding: '10px', fontSize: 11 }} onClick={() => window.open('https://www.unibet.be', '_blank')}>🎯 JOUER</button>
           </div>
         </div>
       )}
@@ -249,12 +273,12 @@ export default function KairosSport() {
       {silenceMode ? (
         <div style={S.cardGold}>
           <div style={{ color: 'var(--gold)', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>🔇 MODE SILENCE ACTIF</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Aucune opportunité Premium aujourd'hui.</div>
-          <button style={{ ...S.btnSmall, marginTop: 8, borderColor: '#FFD70044', color: 'var(--gold)' }} onClick={() => { setMinScore(70); loadScanner(70); }}>Abaisser le seuil à 70</button>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 8 }}>Aucune opportunité Premium aujourd'hui.</div>
+          <button style={{ ...S.btnSmall, borderColor: '#FFD70044', color: 'var(--gold)' }} onClick={() => { setMinScore(70); loadScanner(70); }}>Abaisser le seuil à 70</button>
         </div>
       ) : (
         <div style={{ ...S.card, marginBottom: 14 }}>
-          <div style={{ color: 'var(--green)', fontWeight: 700, fontSize: 13, marginBottom: 6 }}>✅ {stats.premiumCount} OPPORTUNITÉ{stats.premiumCount > 1 ? 'S' : ''} PREMIUM</div>
+          <div style={{ color: 'var(--green)', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>✅ {stats.premiumCount} OPPORTUNITÉ{stats.premiumCount > 1 ? 'S' : ''} PREMIUM</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>{stats.totalAnalyzed?.toLocaleString()} événements analysés</div>
         </div>
       )}
@@ -263,7 +287,7 @@ export default function KairosSport() {
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <button style={{ ...S.btnGhost, flex: 1, fontSize: 11 }} onClick={() => goTo(SCREENS.IMPORT)}>📷 Photo</button>
         <button style={{ ...S.btnGhost, flex: 1, fontSize: 11 }} onClick={() => goTo(SCREENS.IMPORT)}>📋 Coller</button>
-        <button style={{ ...S.btnGhost, flex: 1, fontSize: 11 }} onClick={() => goTo(SCREENS.GENERATOR)}>🎯 Générer</button>
+        <button style={{ ...S.btnGhost, flex: 1, fontSize: 11 }} onClick={() => goTo(SCREENS.HISTORY)}>📂 Historique</button>
       </div>
 
       <div style={S.section}>Top opportunités</div>
@@ -310,7 +334,7 @@ export default function KairosSport() {
   const renderDetail = () => {
     if (!selected) return null;
     const ev = selected;
-    const bookmakers = ev.bookmakers || [
+    const bookmakers = [
       { name: 'Unibet', odd: ev.oddHome, url: 'https://www.unibet.be' },
       { name: 'Circus', odd: (ev.oddHome * 1.02).toFixed(2), url: 'https://www.circus.be' },
       { name: 'Napoleon', odd: (ev.oddHome * 0.98).toFixed(2), url: 'https://www.napoleon.be' },
@@ -330,7 +354,6 @@ export default function KairosSport() {
           <div style={{ color: 'var(--text-muted)', fontSize: 9, letterSpacing: 4, fontFamily: 'var(--font-mono)' }}>KAIROS SCORE</div>
         </div>
 
-        {/* Value Bet */}
         {ev.valueBet?.isValue && (
           <div style={{ background: '#FF6B0015', border: '1px solid #FF6B0044', borderRadius: 14, padding: '12px 16px', marginBottom: 10 }}>
             <div style={{ color: '#FF6B00', fontWeight: 700, fontSize: 13, marginBottom: 6 }}>🔥 VALUE BET DÉTECTÉ</div>
@@ -361,7 +384,22 @@ export default function KairosSport() {
           ))}
         </div>
 
-        <BookmakerCard bookmakers={bookmakers} totalOdd={ev.oddHome} />
+        <div style={{ ...S.card, border: '1px solid #FFD70044' }}>
+          <div style={{ color: 'var(--gold)', fontSize: 11, fontWeight: 700, marginBottom: 10, fontFamily: 'var(--font-mono)' }}>🏆 COMPARATEUR BOOKMAKERS</div>
+          {bookmakers.map((b, i) => (
+            <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '  '}</span>
+                <span style={{ color: i === 0 ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: 13, fontWeight: i === 0 ? 700 : 400 }}>{b.name}</span>
+              </div>
+              <span style={{ color: i === 0 ? 'var(--gold)' : 'var(--text-muted)', fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 14 }}>@{b.odd}</span>
+            </div>
+          ))}
+          <a href={bookmakers[0].url} target="_blank" rel="noopener noreferrer"
+            style={{ display: 'block', background: 'linear-gradient(135deg, #FFD700, #FF8C00)', color: '#07090f', borderRadius: 10, padding: '12px', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12, cursor: 'pointer', textTransform: 'uppercase', textAlign: 'center', textDecoration: 'none', marginTop: 10, letterSpacing: 2 }}>
+            🎯 JOUER SUR {bookmakers[0].name} →
+          </a>
+        </div>
 
         <button style={S.btn} onClick={() => { addToTicket(ev); goTo(SCREENS.GENERATOR); }}>
           {ticket.find(t => t.id === ev.id) ? '✓ VOIR MON TICKET' : '+ AJOUTER AU TICKET'}
@@ -373,9 +411,9 @@ export default function KairosSport() {
 
   const renderGenerator = () => {
     const modes = [
-      { id: 'prudent', label: '🛡️ Prudent', desc: '3 matchs · Score >85' },
-      { id: 'equilibre', label: '⚖️ Équilibré', desc: '5 matchs · Score >80' },
-      { id: 'agressif', label: '🔥 Agressif', desc: '8 matchs · Score >75' },
+      { id: 'prudent', label: '🛡️ Prudent', desc: '3 matchs · >85' },
+      { id: 'equilibre', label: '⚖️ Équilibré', desc: '5 matchs · >80' },
+      { id: 'agressif', label: '🔥 Agressif', desc: '8 matchs · >75' },
     ];
     return (
       <div style={{ paddingTop: 16 }}>
@@ -397,15 +435,14 @@ export default function KairosSport() {
           {modes.map(m => (
             <button key={m.id} onClick={() => setTicketMode(m.id)}
               style={{ flex: 1, background: ticketMode === m.id ? 'var(--green-dim)' : 'var(--bg-card)', border: `1px solid ${ticketMode === m.id ? 'var(--green)' : 'var(--border)'}`, borderRadius: 10, padding: '10px 6px', color: ticketMode === m.id ? 'var(--green)' : 'var(--text-muted)', cursor: 'pointer', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{m.label}</div>
-              <div style={{ fontSize: 9, marginTop: 2, letterSpacing: 0 }}>{m.desc}</div>
+              <div style={{ fontSize: 12, fontWeight: 700 }}>{m.label}</div>
+              <div style={{ fontSize: 9, marginTop: 2 }}>{m.desc}</div>
             </button>
           ))}
         </div>
 
         {loading ? <Loader text={loadingText} /> : <button style={S.btn} onClick={handleGenerate}>⚡ GÉNÉRER MON TICKET</button>}
 
-        {/* Tickets générés avec 3 modes */}
         {generatedTickets && (
           <>
             <div style={S.section}>Choisir un mode</div>
@@ -442,31 +479,24 @@ export default function KairosSport() {
                   <div>
                     <div style={{ color: 'var(--text-primary)', fontSize: 12, fontWeight: 600 }}>{m.sport} {m.home} vs {m.away}</div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>@{m.odd} · Score {m.kairosScore}</div>
+                    {m.bestBookmaker && <div style={{ color: 'var(--gold)', fontSize: 10, marginTop: 2 }}>🏆 {m.bestBookmaker.name} @{m.bestBookmaker.odd}</div>}
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <Badge text={m.riskLevel} color={m.riskLevel === 'Faible' ? 'var(--green)' : 'var(--gold)'} />
-                    {m.valueBet?.isValue && <div style={{ color: '#FF6B00', fontSize: 9, marginTop: 2 }}>🔥 VALUE</div>}
-                  </div>
+                  <Badge text={m.riskLevel} color={m.riskLevel === 'Faible' ? 'var(--green)' : 'var(--gold)'} />
                 </div>
-                {m.bestBookmaker && (
-                  <div style={{ color: 'var(--gold)', fontSize: 10, marginTop: 4, fontFamily: 'var(--font-mono)' }}>
-                    🏆 Meilleure cote : {m.bestBookmaker.name} @{m.bestBookmaker.odd}
-                  </div>
-                )}
               </div>
             ))}
             {activeTicket.worstMatch && <div style={{ marginTop: 8, color: 'var(--gold)', fontSize: 11 }}>⚠️ Plus risqué : {activeTicket.worstMatch}</div>}
+
+            {copyMsg && <div style={{ color: 'var(--green)', fontSize: 12, textAlign: 'center', margin: '8px 0', fontFamily: 'var(--font-mono)' }}>{copyMsg}</div>}
+
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <button style={{ ...S.btn, flex: 1 }} onClick={() => alert('Ticket sauvegardé !')}>💾 SAUVEGARDER</button>
-              <button style={{ ...S.btnPlay, flex: 1 }}
-                onClick={() => window.open(activeTicket.bestBookmaker?.url || 'https://www.unibet.be', '_blank')}>
-                🎯 JOUER
-              </button>
+              <button style={{ ...S.btnCopy, flex: 1 }} onClick={() => copyTicket(activeTicket)}>📋 COPIER</button>
+              <button style={{ ...S.btnCopy, flex: 1, color: 'var(--green)', borderColor: 'var(--border-glow)' }} onClick={() => { saveToHistory(activeTicket); alert('✅ Ticket sauvegardé dans l\'historique !'); }}>💾 SAUVEGARDER</button>
             </div>
+            <button style={{ ...S.btnPlay, marginTop: 8 }} onClick={() => window.open(activeTicket.bestBookmaker?.url || 'https://www.unibet.be', '_blank')}>🎯 JOUER MAINTENANT</button>
           </div>
         )}
 
-        {/* Ticket manuel */}
         {ticket.length > 0 && (
           <>
             <div style={S.section}>Mon ticket manuel ({ticket.length})</div>
@@ -486,21 +516,69 @@ export default function KairosSport() {
                     <div style={{ color: 'var(--text-primary)', fontSize: 12, fontWeight: 600 }}>{ev.sport} {ev.home} vs {ev.away}</div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>@{ev.oddHome} · Score {ev.kairosScore}</div>
                   </div>
-                  <button onClick={() => removeFromTicket(ev.id)} style={{ background: 'transparent', border: '1px solid #FF4D6D44', color: 'var(--red)', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--font-mono)' }}>Retirer</button>
+                  <button onClick={() => removeFromTicket(ev.id)} style={S.btnDanger}>Retirer</button>
                 </div>
               ))}
-              {worstMatch && (
-                <div style={{ ...S.cardGold, marginTop: 8, marginBottom: 0 }}>
-                  <div style={{ color: 'var(--gold)', fontSize: 11 }}>⚠️ Match le plus risqué : {worstMatch.sport} {worstMatch.home} vs {worstMatch.away}</div>
-                </div>
-              )}
-              <button style={{ ...S.btnPlay, marginTop: 12 }} onClick={() => window.open('https://www.unibet.be', '_blank')}>🎯 JOUER MAINTENANT</button>
+              {worstMatch && <div style={{ ...S.cardGold, marginTop: 8, marginBottom: 0 }}><div style={{ color: 'var(--gold)', fontSize: 11 }}>⚠️ Plus risqué : {worstMatch.sport} {worstMatch.home} vs {worstMatch.away}</div></div>}
+
+              {copyMsg && <div style={{ color: 'var(--green)', fontSize: 12, textAlign: 'center', margin: '8px 0', fontFamily: 'var(--font-mono)' }}>{copyMsg}</div>}
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button style={{ ...S.btnCopy, flex: 1 }} onClick={() => copyTicket({ matches: ticket, globalScore: ticketScore, globalRisk: 'Manuel', totalOdd: totalOdd.toFixed(2), stake: budget, potentialGain: potentialGain.toFixed(0), modeLabel: 'Manuel', bestBookmaker: { name: 'Unibet', url: 'https://www.unibet.be' } })}>📋 COPIER</button>
+                <button style={{ ...S.btnCopy, flex: 1, color: 'var(--green)', borderColor: 'var(--border-glow)' }} onClick={() => { saveToHistory({ matches: ticket, globalScore: ticketScore, globalRisk: 'Manuel', totalOdd: totalOdd.toFixed(2), stake: budget, potentialGain: potentialGain.toFixed(0), modeLabel: 'Manuel' }); alert('✅ Sauvegardé !'); }}>💾 SAUVEGARDER</button>
+              </div>
+              <button style={{ ...S.btnPlay, marginTop: 8 }} onClick={() => window.open('https://www.unibet.be', '_blank')}>🎯 JOUER MAINTENANT</button>
             </div>
           </>
         )}
       </div>
     );
   };
+
+  const renderHistory = () => (
+    <div style={{ paddingTop: 16 }}>
+      <button style={S.backBtn} onClick={() => goTo(SCREENS.HOME)}>← Accueil</button>
+      <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 20, letterSpacing: 2, margin: '12px 0 4px' }}>MES TICKETS</div>
+      <div style={{ color: 'var(--text-muted)', fontSize: 10, fontFamily: 'var(--font-mono)', marginBottom: 16 }}>{history.length} ticket{history.length > 1 ? 's' : ''} sauvegardé{history.length > 1 ? 's' : ''}</div>
+
+      {history.length === 0 ? (
+        <div style={{ ...S.card, textAlign: 'center', padding: '32px 16px' }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Aucun ticket sauvegardé</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4 }}>Génère un ticket et clique 💾 Sauvegarder</div>
+        </div>
+      ) : history.map(h => (
+        <div key={h.id} style={{ ...S.card, borderColor: h.result === 'win' ? '#00FFB244' : h.result === 'loss' ? '#FF4D6D44' : 'var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+            <div>
+              <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 14 }}>{h.modeLabel || 'Ticket'}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 10, fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                {new Date(h.savedAt).toLocaleDateString('fr-BE')} · Score {h.globalScore}/100
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ color: 'var(--gold)', fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 15 }}>{h.potentialGain} €</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>Mise : {h.stake} €</div>
+            </div>
+          </div>
+
+          {h.matches?.map((m, i) => (
+            <div key={i} style={{ color: 'var(--text-secondary)', fontSize: 11, padding: '3px 0', borderTop: i === 0 ? '1px solid var(--border)' : 'none' }}>
+              {m.sport} {m.home} vs {m.away} @{m.odd}
+            </div>
+          ))}
+
+          <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+            <button style={{ ...S.btnCopy, fontSize: 10 }} onClick={() => copyTicket(h)}>📋 Copier</button>
+            <button style={{ ...S.btnSmall, fontSize: 10, background: h.result === 'win' ? 'var(--green-dim)' : 'transparent', borderColor: h.result === 'win' ? 'var(--green)' : 'var(--border)', color: h.result === 'win' ? 'var(--green)' : 'var(--text-muted)' }}
+              onClick={() => updateResult(h.id, 'win')}>✅ Gagné</button>
+            <button style={{ ...S.btnSmall, fontSize: 10, background: h.result === 'loss' ? 'var(--red-dim)' : 'transparent', borderColor: h.result === 'loss' ? 'var(--red)' : 'var(--border)', color: h.result === 'loss' ? 'var(--red)' : 'var(--text-muted)' }}
+              onClick={() => updateResult(h.id, 'loss')}>❌ Perdu</button>
+            <button style={{ ...S.btnDanger, fontSize: 10 }} onClick={() => { if (confirm('Supprimer ce ticket ?')) deleteFromHistory(h.id); }}>🗑️ Supprimer</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
   const renderCalculator = () => (
     <div style={{ paddingTop: 16 }}>
@@ -559,7 +637,7 @@ export default function KairosSport() {
       </div>
       {importResult && (
         <div>
-          <div style={S.section}>Résultat de l'analyse</div>
+          <div style={S.section}>Résultat</div>
           <div style={importResult.globalScore >= 80 ? S.cardGreen : S.cardGold}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               {[['Matchs', importResult.matchCount], ['Mise', `${importResult.stake || '?'} €`], ['Gain potentiel', `${Math.round(importResult.potentialGain || 0)} €`], ['Score global', `${importResult.globalScore}/100`]].map(([lbl, val]) => (
@@ -567,25 +645,12 @@ export default function KairosSport() {
               ))}
             </div>
             {importResult.matches?.map((m, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderTop: '1px solid var(--border)' }}>
-                <div>
-                  <div style={{ color: 'var(--text-primary)', fontSize: 12, fontWeight: 600 }}>{m.home} vs {m.away}</div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>@{m.odd}</div>
-                </div>
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderTop: '1px solid var(--border)' }}>
+                <div style={{ color: 'var(--text-primary)', fontSize: 12 }}>{m.home} vs {m.away}</div>
                 <div style={{ color: m.kairosScore >= 80 ? 'var(--green)' : 'var(--gold)', fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 13 }}>{m.kairosScore}/100</div>
               </div>
             ))}
           </div>
-          {importResult.optimization && (
-            <div style={S.cardGreen}>
-              <div style={{ color: 'var(--green)', fontSize: 12, fontWeight: 700, marginBottom: 8 }}>💡 OPTIMISATION SUGGÉRÉE</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 6 }}>Retirer : {importResult.optimization.remove.join(', ')}</div>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <div><div style={S.label}>Nouveau score</div><div style={{ color: 'var(--green)', fontWeight: 700, fontSize: 16, fontFamily: 'var(--font-mono)' }}>{importResult.optimization.newScore}/100</div></div>
-                <div><div style={S.label}>Amélioration</div><div style={{ color: 'var(--green)', fontWeight: 700, fontSize: 16, fontFamily: 'var(--font-mono)' }}>+{importResult.optimization.improvement} pts</div></div>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -595,14 +660,26 @@ export default function KairosSport() {
     <div style={{ paddingTop: 16 }}>
       <button style={S.backBtn} onClick={() => goTo(SCREENS.HOME)}>← Accueil</button>
       <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 20, letterSpacing: 2, margin: '12px 0 16px' }}>MON COACH KAIROS</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
-        {[['Tickets', userStats?.totalBets || 0], ['Succès', `${userStats?.winRate || 0}%`], ['ROI', `${userStats?.roi > 0 ? '+' : ''}${userStats?.roi || 0}%`]].map(([lbl, val]) => (
-          <div key={lbl} style={{ ...S.card, textAlign: 'center', padding: '12px 8px' }}>
-            <div style={{ color: 'var(--green)', fontWeight: 900, fontSize: 18, fontFamily: 'var(--font-mono)' }}>{val}</div>
-            <div style={{ ...S.label, marginBottom: 0, marginTop: 2 }}>{lbl}</div>
+
+      {/* Stats depuis l'historique local */}
+      {history.length > 0 && (() => {
+        const finished = history.filter(h => h.result !== 'pending');
+        const wins = finished.filter(h => h.result === 'win');
+        const totalStake = finished.reduce((a, h) => a + parseFloat(h.stake || 0), 0);
+        const totalGain = wins.reduce((a, h) => a + parseFloat(h.potentialGain || 0), 0);
+        const roi = totalStake > 0 ? ((totalGain - totalStake) / totalStake * 100).toFixed(1) : 0;
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
+            {[['Tickets', history.length], ['Succès', `${finished.length > 0 ? ((wins.length / finished.length) * 100).toFixed(0) : 0}%`], ['ROI', `${roi > 0 ? '+' : ''}${roi}%`]].map(([lbl, val]) => (
+              <div key={lbl} style={{ ...S.card, textAlign: 'center', padding: '12px 8px' }}>
+                <div style={{ color: 'var(--green)', fontWeight: 900, fontSize: 18, fontFamily: 'var(--font-mono)' }}>{val}</div>
+                <div style={{ ...S.label, marginBottom: 0, marginTop: 2 }}>{lbl}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        );
+      })()}
+
       <div style={S.cardGreen}>
         <div style={{ color: 'var(--green)', fontSize: 11, fontWeight: 700, letterSpacing: 2, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>✅ VOUS RÉUSSISSEZ AVEC</div>
         {['Tickets 3 à 5 matchs', 'Cotes entre 1.20 et 1.60', 'Football international', 'Paris en semaine'].map(s => (
@@ -621,6 +698,8 @@ export default function KairosSport() {
           « Votre historique montre que vous êtes 2× plus performant avec des tickets de 3-4 matchs. »
         </div>
       </div>
+
+      <button style={{ ...S.btnGhost, width: '100%', marginTop: 8 }} onClick={() => goTo(SCREENS.HISTORY)}>📂 Voir mon historique ({history.length})</button>
     </div>
   );
 
@@ -650,6 +729,7 @@ export default function KairosSport() {
       case SCREENS.IMPORT: return renderImport();
       case SCREENS.COACH: return renderCoach();
       case SCREENS.SILENCE: return renderSilence();
+      case SCREENS.HISTORY: return renderHistory();
       default: return renderHome();
     }
   };
@@ -678,11 +758,16 @@ export default function KairosSport() {
               <div style={{ color: 'var(--green)', fontWeight: 700, fontSize: 18, letterSpacing: 3, fontFamily: 'var(--font-mono)' }}>⚡ KAIROS</div>
               <div style={{ color: 'var(--text-muted)', fontSize: 8, letterSpacing: 3, fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>Trouver peu · Trouver le mieux</div>
             </div>
-            {ticket.length > 0 && (
-              <button style={{ background: 'var(--green-dim)', border: '1px solid var(--border-glow)', borderRadius: 20, padding: '4px 12px', cursor: 'pointer', color: 'var(--green)', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700 }} onClick={() => goTo(SCREENS.GENERATOR)}>
-                🎯 {ticket.length}
-              </button>
-            )}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {history.length > 0 && (
+                <button style={{ ...S.btnSmall, fontSize: 9 }} onClick={() => goTo(SCREENS.HISTORY)}>📂 {history.length}</button>
+              )}
+              {ticket.length > 0 && (
+                <button style={{ background: 'var(--green-dim)', border: '1px solid var(--border-glow)', borderRadius: 20, padding: '4px 12px', cursor: 'pointer', color: 'var(--green)', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700 }} onClick={() => goTo(SCREENS.GENERATOR)}>
+                  🎯 {ticket.length}
+                </button>
+              )}
+            </div>
           </div>
           <div style={S.scroll}>{renderScreen()}</div>
           <div style={{ background: 'var(--bg-deep)', padding: '5px 16px 6px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
