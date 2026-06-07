@@ -1,6 +1,5 @@
-// /api/horses-ticket.js — v4
-// Génère TOUS les types de paris pour chaque course
-// Simple, Couplé O/D, Tiercé O/D, Quarté+, Quinté+ O/D + évaluation complète
+// /api/horses-ticket.js — V2 PROFESSIONAL
+// Analyse professionnelle + tous types de paris + seuil silence intelligent
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -15,15 +14,24 @@ export default async function handler(req, res) {
     }
 
     const budgetNum = parseFloat(budget) || 100;
-    const racesWithTickets = liveData.races.map(race => buildRaceTickets(race, budgetNum));
+    const racesWithTickets = liveData.races.map(race => buildRaceAnalysis(race, budgetNum));
 
-    // Meilleure opportunité globale
-    const best = racesWithTickets.reduce((a, b) => (b.bestIndex > a.bestIndex ? b : a), racesWithTickets[0]);
+    // Vérifier s'il y a des opportunités
+    const bestEdge = Math.max(...racesWithTickets.map(r => r.bestEdge || 0));
+    
+    if (bestEdge < 0.05) {
+      return res.status(200).json({
+        success: true, silence: true,
+        message: `Aucun pari valable aujourd'hui. Edge maximum: ${(bestEdge * 100).toFixed(1)}%. KAIROS protège votre bankroll.`,
+        bestEdge,
+      });
+    }
+
+    const bestRace = racesWithTickets.reduce((a, b) => (b.bestIndex > a.bestIndex ? b : a), racesWithTickets[0]);
 
     return res.status(200).json({
-      success: true,
-      silence: false,
-      bestRace: best,
+      success: true, silence: false,
+      bestRace,
       allRaces: racesWithTickets,
       source: liveData.source,
       generatedAt: new Date().toLocaleString('fr-BE', { timeZone: 'Europe/Brussels' }),
@@ -34,189 +42,183 @@ export default async function handler(req, res) {
   }
 }
 
-function buildRaceTickets(race, budget) {
+function buildRaceAnalysis(race, budget) {
   const horses = race.horses || [];
-  if (horses.length === 0) return { ...race, tickets: [], bestIndex: 0 };
+  if (horses.length === 0) return { ...race, tickets: [], bestIndex: 0, bestEdge: 0 };
 
   const sorted = [...horses].sort((a, b) => b.kairosIndex - a.kairosIndex);
   const bestIndex = sorted[0]?.kairosIndex || 0;
   const n = sorted.length;
 
-  // Kelly fractions selon indice
+  // Calcul edge moyen
+  const bestEdge = sorted[0] ? Math.max(0, (sorted[0].kairosIndex / 1000) - (1 / sorted[0].odds)) : 0;
+
+  // Kelly selon indice
   const kelly = bestIndex >= 900 ? 0.08 : bestIndex >= 800 ? 0.06 : bestIndex >= 700 ? 0.04 : bestIndex >= 600 ? 0.02 : 0.01;
 
   const tickets = [];
 
-  // ── 1. SIMPLE GAGNANT ──────────────────────────────────────────
+  // ── SIMPLE GAGNANT ──
   const sg = sorted[0];
   tickets.push({
-    type: 'Simple Gagnant',
-    emoji: '🎯',
-    horses: [{ num: sg.num, name: sg.name, jockey: sg.jockey, odds: sg.odds, kairosIndex: sg.kairosIndex, vh: sg.vh, forme: sg.forme }],
-    mise: parseFloat((budget * kelly).toFixed(2)),
-    gainPotentiel: parseFloat((budget * kelly * sg.odds * 0.9).toFixed(2)),
+    type: 'Simple Gagnant', emoji: '🎯',
+    horses: [pick(sg)],
+    mise: round(budget * kelly),
+    gainPotentiel: round(budget * kelly * sg.odds * 0.9),
     confiance: getLabel(sg.kairosIndex),
-    conseil: buildAdvice(sg, race, 'simple'),
+    conseil: sg.verdict,
     recommended: bestIndex >= 850,
+    edge: round(bestEdge * 100),
   });
 
-  // ── 2. SIMPLE PLACÉ ────────────────────────────────────────────
+  // ── SIMPLE PLACÉ ──
   tickets.push({
-    type: 'Simple Placé',
-    emoji: '🥉',
-    horses: [{ num: sg.num, name: sg.name, jockey: sg.jockey, odds: sg.odds, kairosIndex: sg.kairosIndex, vh: sg.vh, forme: sg.forme }],
-    mise: parseFloat((budget * kelly * 0.5).toFixed(2)),
-    gainPotentiel: parseFloat((budget * kelly * 0.5 * Math.min(sg.odds * 0.35, 3.0) * 0.9).toFixed(2)),
+    type: 'Simple Placé', emoji: '🥉',
+    horses: [pick(sg)],
+    mise: round(budget * kelly * 0.5),
+    gainPotentiel: round(budget * kelly * 0.5 * Math.min(sg.odds * 0.33, 3.0) * 0.9),
     confiance: getLabel(sg.kairosIndex),
-    conseil: 'Pari sécurisé — le cheval doit finir dans les 3 premiers.',
-    recommended: bestIndex >= 700,
+    conseil: 'Pari sécurisé — finir dans les 3 premiers suffit.',
+    recommended: bestIndex >= 700 && bestIndex < 850,
+    edge: round(bestEdge * 60),
   });
 
-  // ── 3. COUPLÉ ORDRE ────────────────────────────────────────────
+  // ── COUPLÉ GAGNANT ORDRE ──
   if (n >= 2) {
     const [h1, h2] = sorted;
-    const gainCouple = parseFloat((budget * kelly * 0.6 * h1.odds * h2.odds * 0.25 * 0.9).toFixed(2));
     tickets.push({
-      type: 'Couplé Ordre',
-      emoji: '🔢',
-      horses: [h1, h2].map(h => ({ num: h.num, name: h.name, jockey: h.jockey, odds: h.odds, kairosIndex: h.kairosIndex, vh: h.vh, forme: h.forme })),
-      mise: parseFloat((budget * kelly * 0.6).toFixed(2)),
-      gainPotentiel: gainCouple,
+      type: 'Couplé Gagnant Ordre', emoji: '🔢',
+      horses: [pick(h1), pick(h2)],
+      mise: round(budget * kelly * 0.6),
+      gainPotentiel: round(budget * kelly * 0.6 * h1.odds * h2.odds * 0.2 * 0.9),
       confiance: getLabel(Math.round((h1.kairosIndex + h2.kairosIndex) / 2)),
-      conseil: `${h1.name} 1er, ${h2.name} 2ème — dans cet ordre exact.`,
+      conseil: `${h1.name} 1er, ${h2.name} 2ème — ordre exact requis.`,
       recommended: h1.kairosIndex >= 800 && h2.kairosIndex >= 700,
+      edge: round(bestEdge * 50),
     });
   }
 
-  // ── 4. COUPLÉ DÉSORDRE ─────────────────────────────────────────
+  // ── COUPLÉ PLACÉ DÉSORDRE ──
   if (n >= 2) {
     const [h1, h2] = sorted;
     tickets.push({
-      type: 'Couplé Désordre',
-      emoji: '🔀',
-      horses: [h1, h2].map(h => ({ num: h.num, name: h.name, jockey: h.jockey, odds: h.odds, kairosIndex: h.kairosIndex, vh: h.vh, forme: h.forme })),
-      mise: parseFloat((budget * kelly * 0.5).toFixed(2)),
-      gainPotentiel: parseFloat((budget * kelly * 0.5 * h1.odds * h2.odds * 0.15 * 0.9).toFixed(2)),
+      type: 'Couplé Placé Désordre', emoji: '🔀',
+      horses: [pick(h1), pick(h2)],
+      mise: round(budget * kelly * 0.5),
+      gainPotentiel: round(budget * kelly * 0.5 * h1.odds * h2.odds * 0.12 * 0.9),
       confiance: getLabel(Math.round((h1.kairosIndex + h2.kairosIndex) / 2)),
-      conseil: `${h1.name} et ${h2.name} dans les 2 premiers — peu importe l'ordre.`,
+      conseil: `${h1.name} et ${h2.name} dans les 2 premiers — ordre libre.`,
       recommended: h1.kairosIndex >= 750 && h2.kairosIndex >= 650,
+      edge: round(bestEdge * 45),
     });
   }
 
-  // ── 5. TIERCÉ ORDRE ────────────────────────────────────────────
+  // ── TRIO ──
+  if (n >= 3) {
+    const top3 = sorted.slice(0, 3);
+    tickets.push({
+      type: 'Trio', emoji: '🏅',
+      horses: top3.map(pick),
+      mise: round(budget * kelly * 0.35),
+      gainPotentiel: round(budget * kelly * 0.35 * top3[0].odds * 3 * 0.9),
+      confiance: getLabel(Math.round(top3.reduce((a, h) => a + h.kairosIndex, 0) / 3)),
+      conseil: `Top 3 KAIROS dans les 3 premiers — ordre libre.`,
+      recommended: top3[2].kairosIndex >= 650,
+      edge: round(bestEdge * 40),
+    });
+  }
+
+  // ── TIERCÉ ORDRE ──
   if (n >= 3) {
     const [h1, h2, h3] = sorted;
     tickets.push({
-      type: 'Tiercé Ordre',
-      emoji: '🏆',
-      horses: [h1, h2, h3].map(h => ({ num: h.num, name: h.name, jockey: h.jockey, odds: h.odds, kairosIndex: h.kairosIndex, vh: h.vh, forme: h.forme })),
-      mise: parseFloat((budget * kelly * 0.4).toFixed(2)),
-      gainPotentiel: parseFloat((budget * kelly * 0.4 * h1.odds * 4 * 0.9).toFixed(2)),
+      type: 'Tiercé Ordre', emoji: '🏆',
+      horses: [pick(h1), pick(h2), pick(h3)],
+      mise: round(budget * kelly * 0.4),
+      gainPotentiel: round(budget * kelly * 0.4 * h1.odds * 5 * 0.9),
       confiance: getLabel(Math.round((h1.kairosIndex + h2.kairosIndex + h3.kairosIndex) / 3)),
-      conseil: `${h1.name}, ${h2.name}, ${h3.name} — dans cet ordre exact.`,
+      conseil: `${h1.name}, ${h2.name}, ${h3.name} — ordre exact.`,
       recommended: h1.kairosIndex >= 800,
+      edge: round(bestEdge * 35),
     });
   }
 
-  // ── 6. TIERCÉ DÉSORDRE ─────────────────────────────────────────
-  if (n >= 3) {
-    const [h1, h2, h3] = sorted;
-    tickets.push({
-      type: 'Tiercé Désordre',
-      emoji: '🎲',
-      horses: [h1, h2, h3].map(h => ({ num: h.num, name: h.name, jockey: h.jockey, odds: h.odds, kairosIndex: h.kairosIndex, vh: h.vh, forme: h.forme })),
-      mise: parseFloat((budget * kelly * 0.35).toFixed(2)),
-      gainPotentiel: parseFloat((budget * kelly * 0.35 * h1.odds * 2.5 * 0.9).toFixed(2)),
-      confiance: getLabel(Math.round((h1.kairosIndex + h2.kairosIndex + h3.kairosIndex) / 3)),
-      conseil: `${h1.name}, ${h2.name}, ${h3.name} dans les 3 premiers — ordre libre.`,
-      recommended: h1.kairosIndex >= 750,
-    });
-  }
-
-  // ── 7. QUARTÉ+ ─────────────────────────────────────────────────
+  // ── QUARTÉ+ ──
   if (n >= 4) {
     const top4 = sorted.slice(0, 4);
     tickets.push({
-      type: 'Quarté+',
-      emoji: '4️⃣',
-      horses: top4.map(h => ({ num: h.num, name: h.name, jockey: h.jockey, odds: h.odds, kairosIndex: h.kairosIndex, vh: h.vh, forme: h.forme })),
-      mise: parseFloat((budget * kelly * 0.3).toFixed(2)),
-      gainPotentiel: parseFloat((budget * kelly * 0.3 * top4[0].odds * 6 * 0.9).toFixed(2)),
+      type: 'Quarté+', emoji: '4️⃣',
+      horses: top4.map(pick),
+      mise: round(budget * kelly * 0.3),
+      gainPotentiel: round(budget * kelly * 0.3 * top4[0].odds * 8 * 0.9),
       confiance: getLabel(Math.round(top4.reduce((a, h) => a + h.kairosIndex, 0) / 4)),
-      conseil: `Top 4 KAIROS dans le désordre. Mise de base.`,
+      conseil: 'Top 4 KAIROS dans les 4 premiers — ordre libre.',
       recommended: n >= 4 && top4[3].kairosIndex >= 600,
+      edge: round(bestEdge * 25),
     });
   }
 
-  // ── 8. QUINTÉ+ ORDRE ───────────────────────────────────────────
+  // ── QUINTÉ+ DÉSORDRE ──
   if (n >= 5) {
     const top5 = sorted.slice(0, 5);
     tickets.push({
-      type: 'Quinté+ Ordre',
-      emoji: '💎',
-      horses: top5.map(h => ({ num: h.num, name: h.name, jockey: h.jockey, odds: h.odds, kairosIndex: h.kairosIndex, vh: h.vh, forme: h.forme })),
-      mise: parseFloat((budget * kelly * 0.25).toFixed(2)),
-      gainPotentiel: parseFloat((budget * kelly * 0.25 * top5[0].odds * 12 * 0.9).toFixed(2)),
+      type: 'Quinté+ Désordre', emoji: '🌟',
+      horses: top5.map(pick),
+      mise: round(budget * kelly * 0.2),
+      gainPotentiel: round(budget * kelly * 0.2 * top5[0].odds * 10 * 0.9),
       confiance: getLabel(Math.round(top5.reduce((a, h) => a + h.kairosIndex, 0) / 5)),
-      conseil: `Top 5 KAIROS dans l'ordre exact — gain maximum possible.`,
-      recommended: false,
-    });
-  }
-
-  // ── 9. QUINTÉ+ DÉSORDRE ────────────────────────────────────────
-  if (n >= 5) {
-    const top5 = sorted.slice(0, 5);
-    tickets.push({
-      type: 'Quinté+ Désordre',
-      emoji: '🌟',
-      horses: top5.map(h => ({ num: h.num, name: h.name, jockey: h.jockey, odds: h.odds, kairosIndex: h.kairosIndex, vh: h.vh, forme: h.forme })),
-      mise: parseFloat((budget * kelly * 0.2).toFixed(2)),
-      gainPotentiel: parseFloat((budget * kelly * 0.2 * top5[0].odds * 7 * 0.9).toFixed(2)),
-      confiance: getLabel(Math.round(top5.reduce((a, h) => a + h.kairosIndex, 0) / 5)),
-      conseil: `Top 5 KAIROS dans le désordre — meilleur rapport risque/gain.`,
+      conseil: 'Top 5 KAIROS dans les 5 premiers — ordre libre.',
       recommended: n >= 5,
+      edge: round(bestEdge * 20),
     });
   }
 
-  // ── ÉVALUATION COMPLÈTE TOUS LES CHEVAUX ──────────────────────
+  // ── QUINTÉ+ ORDRE ──
+  if (n >= 5) {
+    const top5 = sorted.slice(0, 5);
+    tickets.push({
+      type: 'Quinté+ Ordre', emoji: '💎',
+      horses: top5.map(pick),
+      mise: round(budget * kelly * 0.15),
+      gainPotentiel: round(budget * kelly * 0.15 * top5[0].odds * 20 * 0.9),
+      confiance: getLabel(Math.round(top5.reduce((a, h) => a + h.kairosIndex, 0) / 5)),
+      conseil: 'Top 5 dans l\'ordre exact — gain jackpot possible.',
+      recommended: false,
+      edge: round(bestEdge * 10),
+    });
+  }
+
+  // Évaluation complète tous les chevaux
   const evaluation = sorted.map((h, i) => ({
     rank: i + 1,
-    num: h.num,
-    name: h.name,
-    jockey: h.jockey,
-    trainer: h.trainer,
-    odds: h.odds,
-    vh: h.vh,
-    forme: h.forme,
+    num: h.num, name: h.name, jockey: h.jockey, trainer: h.trainer,
+    odds: h.odds, vh: h.vh, musique: h.musique,
+    age: h.age, sexe: h.sexe, poids: h.poids,
+    nbCourses: h.nbCourses, nbVictoires: h.nbVictoires,
+    nbPlaces: h.nbPlaces, regularite: h.regularite,
     kairosIndex: h.kairosIndex,
+    kairosDetail: h.kairosScore,
     kairosLabel: getLabel(h.kairosIndex),
-    signal: getSignal(h),
-    conseil: getHorseAdvice(h, i),
+    explanation: h.explanation,
+    verdict: h.verdict,
+    probVictoire: round(Math.min(h.kairosIndex / 1200, 0.85) * 100),
+    probTop3: round(Math.min(h.kairosIndex / 800, 0.95) * 100),
     isTrap: h.odds < 1.5 && h.kairosIndex < 700,
-    isValue: h.odds > 5 && h.kairosIndex >= 800,
+    isValue: h.odds > 5 && h.kairosIndex >= 750,
     isCoup: h.odds_movement < -0.35,
+    indiceRisque: 100 - Math.min(h.regularite, 100),
+    indiceConfiance: Math.round(h.kairosIndex / 10),
   }));
 
-  // Ticket recommandé (le plus adapté selon indice)
   const recommended = tickets.find(t => t.recommended) || tickets[0];
 
   return {
-    id: race.id,
-    name: race.name,
-    track: race.track,
-    time: race.time,
-    countdown: race.countdown,
-    distance: race.distance,
-    going: race.going,
-    prize: race.prize,
-    country: race.country,
-    deepLink: race.deepLink,
-    nbParticipants: n,
-    bestIndex,
-    bestHorseName: sorted[0]?.name,
-    recommended,
-    tickets,
-    evaluation,
+    id: race.id, name: race.name, track: race.track,
+    time: race.time, countdown: race.countdown,
+    distance: race.distance, going: race.going, prize: race.prize,
+    country: race.country, deepLink: race.deepLink,
+    nbParticipants: n, bestIndex, bestEdge,
+    recommended, tickets, evaluation,
     traps: evaluation.filter(e => e.isTrap),
     valueBets: evaluation.filter(e => e.isValue),
     coups: evaluation.filter(e => e.isCoup),
@@ -224,24 +226,11 @@ function buildRaceTickets(race, budget) {
   };
 }
 
-function getSignal(horse) {
-  if (horse.odds < 1.5) return '🔴 PIÈGE';
-  if (horse.odds_movement < -0.35) return '🔥 COUP';
-  if (horse.kairosIndex >= 900) return '🟢 EXCEPTIONNEL';
-  if (horse.kairosIndex >= 850) return '🟢 TRÈS FORT';
-  if (horse.kairosIndex >= 800) return '🟡 JOUABLE';
-  if (horse.kairosIndex >= 700) return '🟠 RISQUÉ';
-  return '⚪ OBSERVATION';
+function pick(h) {
+  return { num: h.num, name: h.name, jockey: h.jockey, trainer: h.trainer, odds: h.odds, kairosIndex: h.kairosIndex, vh: h.vh, musique: h.musique, regularite: h.regularite, verdict: h.verdict };
 }
 
-function getHorseAdvice(horse, rank) {
-  if (horse.odds < 1.5) return 'Sur-favori sans value — éviter absolument.';
-  if (rank === 0 && horse.kairosIndex >= 850) return 'Meilleur choix KAIROS — VH élevé + jockey top.';
-  if (horse.vh > 40 && horse.kairosIndex >= 750) return `VH ${horse.vh} excellent — cheval très expérimenté.`;
-  if (horse.odds_movement < -0.35) return 'Coup détecté — cotes en chute rapide.';
-  if (horse.odds > 15 && horse.kairosIndex >= 750) return 'Outsider intéressant — value bet potentiel.';
-  return 'Surveiller mais pas prioritaire.';
-}
+function round(v) { return parseFloat((v || 0).toFixed(2)); }
 
 function getLabel(index) {
   if (index >= 950) return 'EXCEPTIONNEL 🟢';
@@ -253,16 +242,7 @@ function getLabel(index) {
   return 'ÉVITER 🔴';
 }
 
-function buildAdvice(horse, race, type) {
-  const vh = horse.vh > 30 ? `VH ${horse.vh}. ` : '';
-  const forme = horse.forme?.includes('1') ? 'Bonne forme récente. ' : '';
-  return `${horse.name} @${horse.odds} — ${vh}${forme}${getLabel(horse.kairosIndex)}.`;
-}
-
 function buildNarrative(horse, race, index) {
   if (!horse) return '';
-  const vh = horse.vh > 30 ? `VH ${horse.vh} — très expérimenté. ` : '';
-  const forme = horse.forme?.startsWith('1') ? 'Dernière course gagnée. ' : '';
-  const coup = horse.odds_movement < -0.35 ? 'Cotes en chute — coup potentiel 🔥. ' : '';
-  return `${horse.name} est le choix KAIROS avec ${index}/1000. ${forme}${vh}${coup}Jockey: ${horse.jockey}.`;
+  return horse.explanation || `${horse.name} est le choix KAIROS avec ${index}/1000.`;
 }
